@@ -1,0 +1,32 @@
+# EcoSeek Bioclim — ERA5-Land bioclimatic variable server
+#
+# Usage:
+#   docker compose up -d
+#
+# The server reads TIF files directly from the mounted data volume.
+# No duplication — files stay on the Toshiba drive.
+#
+# Access:
+#   Local:   http://localhost:8650
+#   Public:  https://bioclim.ecoseek.org (via Cloudflare Tunnel)
+
+services:
+  ecoseek-bioclim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecoseek-bioclim
+    ports:
+      - "127.0.0.1:8650:8650"
+    environment:
+      BIOCLIM_DATA_DIR: "/data"
+      BIOCLIM_PORT: "8650"
+    volumes:
+      - /media/reumanlab/TOSHIBA_EXT/era5-bioclim:/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8650/api/years"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
