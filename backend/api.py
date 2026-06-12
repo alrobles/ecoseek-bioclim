@@ -347,7 +347,7 @@ def index():
             <div class="api-endpoint"><a href="/api/summary">GET /api/summary</a> — Full inventory (years × variables)</div>
             <div class="api-endpoint"><a href="/api/years">GET /api/years</a> — List available years</div>
             <div class="api-endpoint"><a href="/api/variables">GET /api/variables</a> — Variable definitions</div>
-            <div class="api-endpoint">GET /api/download/{year}/{filename} — Download file</div>
+            <div class="api-endpoint">GET /api/download/{{year}}/{{filename}} — Download file</div>
         </div>
 
         <div class="var-table">
