@@ -1,17 +1,5 @@
 """
 EcoSeek Bioclim — ERA5-Land bioclimatic variable server.
-
-Serves BIO01-BIO19 GeoTIFF files derived from ERA5-Land (1980-2020)
-as a browsable file server with API endpoints.
-
-Endpoints:
-  GET /                          Landing page + download grid
-  GET /api/years                 List available years
-  GET /api/variables             List bioclimatic variables (bio01-bio19)
-  GET /api/summary               Full inventory (years x variables)
-  GET /api/download/{year}/{fn}  Download a specific file
-  GET /{year}/                   Browse files for a year
-  GET /{year}/{filename}         Direct download
 """
 
 from __future__ import annotations
@@ -21,14 +9,14 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-# ── Config ──────────────────────────────────────────────────────────────────
 DATA_DIR = Path(os.environ.get("BIOCLIM_DATA_DIR", "/data"))
 PORT = int(os.environ.get("BIOCLIM_PORT", "8650"))
+BASE_URL = "https://bioclim.ecoseek.org"
 
 BIOCLIM_VARS = {
     "bio01": "Annual Mean Temperature",
@@ -56,20 +44,13 @@ TEMP_VARS = {k: v for k, v in BIOCLIM_VARS.items() if int(k.replace("bio", "")) 
 PRECIP_VARS = {k: v for k, v in BIOCLIM_VARS.items() if int(k.replace("bio", "")) >= 12}
 
 app = FastAPI(title="EcoSeek Bioclim", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 STATIC_DIR = Path(__file__).parent.parent / "frontend" / "public"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
 def _scan_years() -> Dict[str, List[str]]:
     result = {}
     if not DATA_DIR.exists():
@@ -91,7 +72,6 @@ def _file_size_human(path: Path) -> str:
     return f"{size:.1f} TB"
 
 
-# ── Shared CSS ──────────────────────────────────────────────────────────────
 CSS = """
 <style>
     :root {
@@ -107,7 +87,6 @@ CSS = """
     a { color: var(--primary); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    /* Hero */
     .hero {
         text-align: center; padding: 3rem 1rem 2rem;
         border-bottom: 1px solid var(--border);
@@ -116,7 +95,6 @@ CSS = """
     .hero h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.3rem; }
     .hero p { color: var(--text-muted); font-size: 1rem; }
 
-    /* Stats */
     .stats {
         display: flex; justify-content: center; gap: 2rem;
         padding: 1.5rem 1rem; flex-wrap: wrap;
@@ -125,65 +103,98 @@ CSS = """
     .stat .num { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
     .stat .lbl { font-size: 0.8rem; color: var(--text-muted); }
 
-    /* Container */
-    .container { max-width: 800px; margin: 0 auto; padding: 0 1rem; }
+    .container { max-width: 720px; margin: 0 auto; padding: 0 1rem; }
 
-    /* Year selector */
-    .year-grid {
-        display: flex; flex-wrap: wrap; gap: 0.5rem;
-        justify-content: center; padding: 1rem 0 2rem;
+    /* Quick access */
+    .quick-access {
+        display: flex; gap: 0.8rem; align-items: center;
+        padding: 1.5rem 0; justify-content: center;
     }
-    .year-btn {
-        display: inline-block; padding: 0.5rem 1rem;
+    .year-input {
+        width: 100px; padding: 0.6rem 0.8rem; font-size: 1rem;
+        border: 2px solid var(--border); border-radius: 8px;
+        text-align: center; font-weight: 600;
+    }
+    .year-input:focus { border-color: var(--primary); outline: none; }
+    .go-btn {
+        padding: 0.6rem 1.5rem; background: var(--primary); color: white;
+        border: none; border-radius: 8px; font-size: 1rem; font-weight: 600;
+        cursor: pointer;
+    }
+    .go-btn:hover { background: var(--primary-dark); }
+
+    /* Range section */
+    .section {
         background: var(--card); border: 1px solid var(--border);
-        border-radius: 8px; font-size: 0.9rem; font-weight: 500;
-        color: var(--text); cursor: pointer; transition: all 0.15s;
+        border-radius: 12px; padding: 1.5rem; margin: 1rem 0;
     }
-    .year-btn:hover {
-        background: var(--primary); color: white; border-color: var(--primary);
-        text-decoration: none;
+    .section h2 {
+        font-size: 1rem; font-weight: 600; margin-bottom: 1rem;
+        color: var(--primary);
     }
 
-    /* Variable grid */
-    .section-title {
-        font-size: 1.1rem; font-weight: 600; padding: 1.5rem 0 0.5rem;
-        border-bottom: 2px solid var(--primary); display: inline-block;
-        margin-bottom: 1rem;
+    /* Slider */
+    .range-row {
+        display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;
     }
+    .range-row label { min-width: 3rem; font-weight: 600; font-size: 0.9rem; }
+    .range-row input[type=range] {
+        flex: 1; accent-color: var(--primary); height: 6px;
+    }
+    .range-val {
+        min-width: 3rem; text-align: center; font-weight: 700;
+        font-size: 1.1rem; color: var(--primary);
+    }
+    .range-actions {
+        display: flex; gap: 0.8rem; margin-top: 1rem; flex-wrap: wrap;
+    }
+    .action-btn {
+        padding: 0.5rem 1.2rem; border: 2px solid var(--primary);
+        border-radius: 8px; background: white; color: var(--primary);
+        font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    }
+    .action-btn:hover { background: var(--primary); color: white; }
+    .action-btn.primary { background: var(--primary); color: white; }
+    .action-btn.primary:hover { background: var(--primary-dark); }
+
+    /* Download box */
+    .dl-box {
+        background: #f8fafc; border: 1px solid var(--border);
+        border-radius: 8px; padding: 1rem; margin-top: 1rem;
+        font-family: 'SF Mono', Monaco, monospace; font-size: 0.82rem;
+        color: #334155; overflow-x: auto; white-space: pre-wrap;
+        display: none; line-height: 1.8;
+    }
+    .dl-box .comment { color: #94a3b8; }
+    .dl-box .cmd { color: var(--primary); font-weight: 600; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0; margin-bottom: 0; }
+    .tab-btn {
+        padding: 0.5rem 1rem; border: 1px solid var(--border);
+        background: #f8fafc; cursor: pointer; font-size: 0.85rem;
+        font-weight: 500; color: var(--text-muted);
+    }
+    .tab-btn:first-child { border-radius: 8px 0 0 0; }
+    .tab-btn:last-child { border-radius: 0 8px 0 0; }
+    .tab-btn.active {
+        background: white; border-bottom-color: white;
+        color: var(--primary); font-weight: 600;
+    }
+
+    /* Variables */
     .var-grid {
-        display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        gap: 0.6rem; margin-bottom: 2rem;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 0.5rem; margin-top: 0.8rem;
     }
     .var-card {
-        display: flex; align-items: center; gap: 0.6rem;
-        padding: 0.6rem 0.8rem; background: var(--primary-light);
-        border-radius: 8px; font-size: 0.85rem;
+        display: flex; align-items: center; gap: 0.5rem;
+        padding: 0.5rem 0.6rem; background: var(--primary-light);
+        border-radius: 6px; font-size: 0.82rem;
     }
-    .var-code {
-        font-weight: 700; color: var(--primary); font-family: monospace;
-        min-width: 3.5rem;
-    }
+    .var-code { font-weight: 700; color: var(--primary); font-family: monospace; min-width: 3rem; }
 
-    /* API section */
-    .api-section {
-        background: #f8fafc; border: 1px solid var(--border);
-        border-radius: 12px; padding: 1.5rem; margin: 2rem 0;
-    }
-    .api-section h2 { color: var(--primary); font-size: 1rem; margin-bottom: 0.8rem; }
-    .api-row {
-        font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem;
-        padding: 0.4rem 0; color: #334155;
-    }
-    .api-method { color: var(--primary); font-weight: 600; }
-
-    /* Footer */
-    .footer {
-        text-align: center; color: var(--text-muted); font-size: 0.8rem;
-        padding: 2rem 1rem; border-top: 1px solid var(--border); margin-top: 2rem;
-    }
-
-    /* File list */
-    .file-list { margin: 1rem 0 2rem; }
+    /* File list (year page) */
     .file-row {
         display: flex; align-items: center; justify-content: space-between;
         padding: 0.6rem 0; border-bottom: 1px solid var(--border);
@@ -194,17 +205,55 @@ CSS = """
     .file-size { color: var(--text-muted); font-size: 0.85rem; min-width: 5rem; text-align: right; }
     .dl-btn {
         background: var(--primary); color: white; padding: 0.3rem 0.8rem;
-        border-radius: 6px; font-size: 0.8rem; font-weight: 500;
-        margin-left: 1rem;
+        border-radius: 6px; font-size: 0.8rem; font-weight: 500; margin-left: 1rem;
     }
     .dl-btn:hover { background: var(--primary-dark); text-decoration: none; }
+    .back-link { display: inline-block; padding: 0.8rem 0; color: var(--primary); font-size: 0.9rem; }
 
-    .back-link {
-        display: inline-block; padding: 0.8rem 0; color: var(--primary);
-        font-size: 0.9rem;
+    .footer {
+        text-align: center; color: var(--text-muted); font-size: 0.8rem;
+        padding: 2rem 1rem; border-top: 1px solid var(--border); margin-top: 2rem;
     }
 </style>
 """
+
+
+def _dl_script(start: int, end: int, fmt: str) -> str:
+    """Generate download script for a year range."""
+    years = _scan_years()
+    valid = [y for y in years if start <= int(y) <= end]
+    lines = []
+
+    if fmt == "bash":
+        lines.append(f"# EcoSeek Bioclim — ERA5-Land BIO01-BIO19 ({start}-{end})")
+        lines.append(f"# {len(valid)} years × 19 variables = {len(valid)*19} files")
+        lines.append("")
+        lines.append(f"mkdir -p ecoseek-bioclim && cd ecoseek-bioclim")
+        for y in valid:
+            lines.append(f"mkdir -p {y}")
+            for v in BIOCLIM_VARS:
+                lines.append(f"curl -sO {BASE_URL}/api/download/{y}/{v}_{y}.tif")
+        lines.append("")
+        lines.append(f'echo "Downloaded {len(valid)*19} files"')
+    elif fmt == "powershell":
+        lines.append(f"# EcoSeek Bioclim — ERA5-Land BIO01-BIO19 ({start}-{end})")
+        lines.append(f"New-Item -ItemType Directory -Force -Path ecoseek-bioclim | Out-Null")
+        for y in valid:
+            lines.append(f"New-Item -ItemType Directory -Force -Path ecoseek-bioclim\\{y} | Out-Null")
+            for v in BIOCLIM_VARS:
+                lines.append(f"Invoke-WebRequest -Uri {BASE_URL}/api/download/{y}/{v}_{y}.tif -OutFile ecoseek-bioclim\\{y}\\{v}_{y}.tif")
+    elif fmt == "python":
+        lines.append("# EcoSeek Bioclim — ERA5-Land BIO01-BIO19")
+        lines.append("from ecoseek_bioclim import BioclimClient")
+        lines.append("")
+        lines.append(f"client = BioclimClient()")
+        lines.append(f"client.download_all('./ecoseek-bioclim', years={list(range(start, end+1))})")
+    elif fmt == "urls":
+        for y in valid:
+            for v in BIOCLIM_VARS:
+                lines.append(f"{BASE_URL}/api/download/{y}/{v}_{y}.tif")
+
+    return "\n".join(lines)
 
 
 # ── Landing page ────────────────────────────────────────────────────────────
@@ -212,13 +261,9 @@ CSS = """
 def index():
     data = _scan_years()
     years = sorted(data.keys())
-    year_range = f"{years[0]}–{years[-1]}" if years else "N/A"
+    yr_min = int(years[0]) if years else 1980
+    yr_max = int(years[-1]) if years else 2020
     total = sum(len(f) for f in data.values())
-
-    year_btns = "".join(
-        f'<a href="/{y}/" class="year-btn">{y}</a>'
-        for y in sorted(years, reverse=True)
-    )
 
     def var_cards(vars_dict):
         return "".join(
@@ -239,7 +284,7 @@ def index():
     <div class="hero">
         <img src="/static/ecoseek-logo.svg" alt="EcoSeek">
         <h1>EcoSeek Bioclim</h1>
-        <p>ERA5-Land bioclimatic variables · BIO01-BIO19 · {year_range}</p>
+        <p>ERA5-Land bioclimatic variables · BIO01-BIO19 · {yr_min}–{yr_max}</p>
     </div>
 
     <div class="stats">
@@ -250,30 +295,141 @@ def index():
     </div>
 
     <div class="container">
-        <div class="section-title">Download by Year</div>
-        <div class="year-grid">{year_btns}</div>
+        <!-- Quick access -->
+        <div class="section">
+            <h2>📥 Quick Download</h2>
+            <div class="quick-access">
+                <label style="font-size:0.9rem;color:var(--text-muted)">Year</label>
+                <input type="number" class="year-input" id="yearInput"
+                       min="{yr_min}" max="{yr_max}" value="{yr_max}">
+                <button class="go-btn" onclick="goToYear()">Browse →</button>
+            </div>
+        </div>
 
-        <div class="section-title">Temperature Variables</div>
-        <div class="var-grid">{var_cards(TEMP_VARS)}</div>
+        <!-- Range download -->
+        <div class="section">
+            <h2>📦 Batch Download</h2>
+            <div class="range-row">
+                <label>From</label>
+                <input type="range" id="rangeStart" min="{yr_min}" max="{yr_max}" value="{yr_min}"
+                       oninput="updateRange()">
+                <span class="range-val" id="startVal">{yr_min}</span>
+            </div>
+            <div class="range-row">
+                <label>To</label>
+                <input type="range" id="rangeEnd" min="{yr_min}" max="{yr_max}" value="{yr_max}"
+                       oninput="updateRange()">
+                <span class="range-val" id="endVal">{yr_max}</span>
+            </div>
+            <p style="font-size:0.85rem;color:var(--text-muted);margin:0.5rem 0">
+                <span id="fileCount">{len(years)*19}</span> files · <span id="yearCount">{len(years)}</span> years × 19 variables
+            </p>
 
-        <div class="section-title">Precipitation Variables</div>
-        <div class="var-grid">{var_cards(PRECIP_VARS)}</div>
+            <div class="tabs" id="tabs">
+                <button class="tab-btn active" onclick="showTab('bash')">Bash / curl</button>
+                <button class="tab-btn" onclick="showTab('powershell')">PowerShell</button>
+                <button class="tab-btn" onclick="showTab('python')">Python</button>
+                <button class="tab-btn" onclick="showTab('urls')">URL list</button>
+            </div>
+            <div class="dl-box" id="dlBox" style="display:block"></div>
 
-        <div class="api-section">
+            <div class="range-actions">
+                <button class="action-btn primary" onclick="downloadScript()">Download Script</button>
+                <button class="action-btn" onclick="copyScript()">Copy to Clipboard</button>
+                <button class="action-btn" onclick="downloadUrls()">Download URL List</button>
+            </div>
+        </div>
+
+        <!-- Variables reference -->
+        <div class="section">
+            <h2>🌡️ Temperature Variables (bio01-bio11)</h2>
+            <div class="var-grid">{var_cards(TEMP_VARS)}</div>
+        </div>
+        <div class="section">
+            <h2>🌧️ Precipitation Variables (bio12-bio19)</h2>
+            <div class="var-grid">{var_cards(PRECIP_VARS)}</div>
+        </div>
+
+        <!-- API -->
+        <div class="section">
             <h2>📡 API</h2>
-            <div class="api-row"><span class="api-method">GET</span> <a href="/api/summary">/api/summary</a> — Full inventory</div>
-            <div class="api-row"><span class="api-method">GET</span> <a href="/api/years">/api/years</a> — Available years</div>
-            <div class="api-row"><span class="api-method">GET</span> <a href="/api/variables">/api/variables</a> — Variable definitions</div>
-            <div class="api-row"><span class="api-method">GET</span> /api/download/{{year}}/{{file}} — Download</div>
+            <div style="font-family:monospace;font-size:0.85rem;line-height:2">
+                <div><span style="color:var(--primary);font-weight:600">GET</span> <a href="/api/summary">/api/summary</a></div>
+                <div><span style="color:var(--primary);font-weight:600">GET</span> <a href="/api/years">/api/years</a></div>
+                <div><span style="color:var(--primary);font-weight:600">GET</span> <a href="/api/variables">/api/variables</a></div>
+                <div><span style="color:var(--primary);font-weight:600">GET</span> /api/download/{{year}}/{{file}}</div>
+                <div><span style="color:var(--primary);font-weight:600">GET</span> /api/scripts?start=1980&amp;end=2020&amp;fmt=bash</div>
+            </div>
         </div>
     </div>
 
     <div class="footer">
         <a href="https://ecoseek.org">EcoSeek</a> ·
-        Data: <a href="https://cds.climate.copernicus.eu">ERA5-Land (Copernicus CDS)</a> ·
-        Processed with <a href="https://github.com/alrobles/xclim">xclim</a> ·
+        <a href="https://cds.climate.copernicus.eu">ERA5-Land</a> ·
+        <a href="https://github.com/alrobles/xclim">xclim</a> ·
         <a href="https://github.com/alrobles/ecoseek-bioclim">Source</a>
     </div>
+
+    <script>
+    const yrMin = {yr_min}, yrMax = {yr_max};
+    let currentTab = 'bash';
+
+    function goToYear() {{
+        const y = document.getElementById('yearInput').value;
+        if (y >= yrMin && y <= yrMax) window.location.href = '/' + y + '/';
+    }}
+
+    function updateRange() {{
+        let s = parseInt(document.getElementById('rangeStart').value);
+        let e = parseInt(document.getElementById('rangeEnd').value);
+        if (s > e) {{ document.getElementById('rangeEnd').value = s; e = s; }}
+        document.getElementById('startVal').textContent = s;
+        document.getElementById('endVal').textContent = e;
+        const n = e - s + 1;
+        document.getElementById('fileCount').textContent = n * 19;
+        document.getElementById('yearCount').textContent = n;
+        loadScript();
+    }}
+
+    function showTab(fmt) {{
+        currentTab = fmt;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+        loadScript();
+    }}
+
+    function loadScript() {{
+        const s = document.getElementById('rangeStart').value;
+        const e = document.getElementById('rangeEnd').value;
+        fetch(`/api/scripts?start=${{s}}&end=${{e}}&fmt=${{currentTab}}`)
+            .then(r => r.text())
+            .then(t => {{
+                const box = document.getElementById('dlBox');
+                box.textContent = t;
+            }});
+    }}
+
+    function downloadScript() {{
+        const s = document.getElementById('rangeStart').value;
+        const e = document.getElementById('rangeEnd').value;
+        const ext = currentTab === 'python' ? '.py' : currentTab === 'powershell' ? '.ps1' : '.sh';
+        window.location.href = `/api/scripts?start=${{s}}&end=${{e}}&fmt=${{currentTab}}&download=bioclim_${{s}}-${{e}}${{ext}}`;
+    }}
+
+    function copyScript() {{
+        const box = document.getElementById('dlBox');
+        navigator.clipboard.writeText(box.textContent);
+    }}
+
+    function downloadUrls() {{
+        const s = document.getElementById('rangeStart').value;
+        const e = document.getElementById('rangeEnd').value;
+        window.location.href = `/api/scripts?start=${{s}}&end=${{e}}&fmt=urls&download=bioclim_urls_${{s}}-${{e}}.txt`;
+    }}
+
+    // Init
+    loadScript();
+    </script>
 </body>
 </html>""")
 
@@ -284,10 +440,9 @@ def year_browser(year: str):
     year_dir = DATA_DIR / year
     if not year_dir.exists() or not re.match(r"^\d{4}$", year):
         raise HTTPException(status_code=404, detail="Year not found")
-
     files = sorted(f.name for f in year_dir.glob("*.tif"))
     if not files:
-        raise HTTPException(status_code=404, detail="No files for this year")
+        raise HTTPException(status_code=404, detail="No files")
 
     rows = ""
     for fn in files:
@@ -312,26 +467,29 @@ def year_browser(year: str):
     {CSS}
 </head>
 <body>
-    <div class="hero" style="padding: 2rem 1rem 1.5rem;">
-        <img src="/static/ecoseek-logo.svg" alt="EcoSeek" style="width:48px;height:48px;">
+    <div class="hero" style="padding:2rem 1rem 1.5rem">
+        <img src="/static/ecoseek-logo.svg" alt="EcoSeek" style="width:48px;height:48px">
         <h1>Year {year}</h1>
         <p>BIO01-BIO19 · ERA5-Land</p>
     </div>
     <div class="container">
         <a href="/" class="back-link">← All years</a>
-        <div class="file-list">{rows}</div>
+        <div class="section">
+            <h2>Files ({len(files)})</h2>
+            {rows}
+        </div>
     </div>
     <div class="footer">
         <a href="https://ecoseek.org">EcoSeek</a> ·
-        Data: <a href="https://cds.climate.copernicus.eu">ERA5-Land (Copernicus CDS)</a> ·
-        Processed with <a href="https://github.com/alrobles/xclim">xclim</a> ·
+        <a href="https://cds.climate.copernicus.eu">ERA5-Land</a> ·
+        <a href="https://github.com/alrobles/xclim">xclim</a> ·
         <a href="https://github.com/alrobles/ecoseek-bioclim">Source</a>
     </div>
 </body>
 </html>""")
 
 
-# ── API Endpoints ───────────────────────────────────────────────────────────
+# ── API ─────────────────────────────────────────────────────────────────────
 @app.get("/api/years")
 def list_years():
     data = _scan_years()
@@ -366,6 +524,22 @@ def download_file(year: str, filename: str):
     if not filepath.exists() or not filepath.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(filepath, media_type="image/tiff", filename=filename)
+
+
+@app.get("/api/scripts")
+def generate_scripts(
+    start: int = Query(1980),
+    end: int = Query(2020),
+    fmt: str = Query("bash"),
+    download: str = Query(None),
+):
+    script = _dl_script(start, end, fmt)
+    if download:
+        return PlainTextResponse(
+            script,
+            headers={"Content-Disposition": f'attachment; filename="{download}"'},
+        )
+    return PlainTextResponse(script)
 
 
 @app.get("/{year}/{filename}")
