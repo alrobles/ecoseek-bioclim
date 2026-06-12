@@ -306,7 +306,7 @@ def index():
             </div>
         </div>
 
-        <!-- Range download -->
+        <!-- Batch download -->
         <div class="section">
             <h2>📦 Batch Download</h2>
             <div class="range-row">
@@ -321,22 +321,16 @@ def index():
                        oninput="updateRange()">
                 <span class="range-val" id="endVal">{yr_max}</span>
             </div>
-            <p style="font-size:0.85rem;color:var(--text-muted);margin:0.5rem 0">
+            <p style="font-size:0.85rem;color:var(--text-muted);margin:0.8rem 0 1.2rem">
                 <span id="fileCount">{len(years)*19}</span> files · <span id="yearCount">{len(years)}</span> years × 19 variables
             </p>
 
-            <div class="tabs" id="tabs">
-                <button class="tab-btn active" onclick="showTab('bash')">Bash / curl</button>
-                <button class="tab-btn" onclick="showTab('powershell')">PowerShell</button>
-                <button class="tab-btn" onclick="showTab('python')">Python</button>
-                <button class="tab-btn" onclick="showTab('urls')">URL list</button>
+            <div class="dl-box" id="curlCmd" style="display:block;white-space:nowrap;overflow-x:auto;font-size:0.9rem;padding:1rem">
             </div>
-            <div class="dl-box" id="dlBox" style="display:block"></div>
-
             <div class="range-actions">
-                <button class="action-btn primary" onclick="downloadScript()">Download Script</button>
-                <button class="action-btn" onclick="copyScript()">Copy to Clipboard</button>
-                <button class="action-btn" onclick="downloadUrls()">Download URL List</button>
+                <button class="action-btn primary" onclick="copyCurl()">Copy</button>
+                <button class="action-btn" onclick="downloadScript()">Download .sh</button>
+                <button class="action-btn" onclick="downloadUrls()">URL list (.txt)</button>
             </div>
         </div>
 
@@ -372,8 +366,6 @@ def index():
 
     <script>
     const yrMin = {yr_min}, yrMax = {yr_max};
-    let currentTab = 'bash';
-
     function goToYear() {{
         const y = document.getElementById('yearInput').value;
         if (y >= yrMin && y <= yrMax) window.location.href = '/' + y + '/';
@@ -388,37 +380,26 @@ def index():
         const n = e - s + 1;
         document.getElementById('fileCount').textContent = n * 19;
         document.getElementById('yearCount').textContent = n;
-        loadScript();
+        updateCurl();
     }}
 
-    function showTab(fmt) {{
-        currentTab = fmt;
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
-        loadScript();
-    }}
-
-    function loadScript() {{
+    function updateCurl() {{
         const s = document.getElementById('rangeStart').value;
         const e = document.getElementById('rangeEnd').value;
-        fetch(`/api/scripts?start=${{s}}&end=${{e}}&fmt=${{currentTab}}`)
-            .then(r => r.text())
-            .then(t => {{
-                const box = document.getElementById('dlBox');
-                box.textContent = t;
-            }});
+        const url = `${{window.location.origin}}/api/scripts?start=${{s}}&end=${{e}}&fmt=bash`;
+        document.getElementById('curlCmd').textContent =
+            'curl -sSf "' + url + '" -o bioclim.sh && bash bioclim.sh';
+    }}
+
+    function copyCurl() {{
+        const text = document.getElementById('curlCmd').textContent;
+        navigator.clipboard.writeText(text);
     }}
 
     function downloadScript() {{
         const s = document.getElementById('rangeStart').value;
         const e = document.getElementById('rangeEnd').value;
-        const ext = currentTab === 'python' ? '.py' : currentTab === 'powershell' ? '.ps1' : '.sh';
-        window.location.href = `/api/scripts?start=${{s}}&end=${{e}}&fmt=${{currentTab}}&download=bioclim_${{s}}-${{e}}${{ext}}`;
-    }}
-
-    function copyScript() {{
-        const box = document.getElementById('dlBox');
-        navigator.clipboard.writeText(box.textContent);
+        window.location.href = `/api/scripts?start=${{s}}&end=${{e}}&fmt=bash&download=bioclim_${{s}}-${{e}}.sh`;
     }}
 
     function downloadUrls() {{
@@ -428,7 +409,7 @@ def index():
     }}
 
     // Init
-    loadScript();
+    updateCurl();
     </script>
 </body>
 </html>""")
