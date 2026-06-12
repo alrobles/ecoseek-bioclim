@@ -24,6 +24,7 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DATA_DIR = Path(os.environ.get("BIOCLIM_DATA_DIR", "/data"))
@@ -64,6 +65,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve static assets (logos, favicon)
+STATIC_DIR = Path(__file__).parent.parent / "frontend" / "public"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -164,6 +170,7 @@ def index():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EcoSeek Bioclim — ERA5-Land Bioclimatic Variables</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {{
             --primary: #1B5E20;
@@ -301,7 +308,10 @@ def index():
 </head>
 <body>
     <div class="header">
-        <h1>🌍 EcoSeek Bioclim</h1>
+        <div style="display:flex;align-items:center;justify-content:center;gap:1rem;margin-bottom:0.5rem">
+            <img src="/static/ecoseek-logo.svg" alt="EcoSeek" style="width:48px;height:48px">
+            <h1>EcoSeek Bioclim</h1>
+        </div>
         <p>ERA5-Land Bioclimatic Variables (BIO01-BIO19) · 1980-2020</p>
     </div>
 
@@ -363,9 +373,10 @@ def index():
     </div>
 
     <div class="footer">
-        Powered by <a href="https://ecoseek.org">EcoSeek</a> ·
+        <a href="https://ecoseek.org">EcoSeek</a> ·
         Data: <a href="https://cds.climate.copernicus.eu">ERA5-Land (Copernicus CDS)</a> ·
-        Processed with xclim
+        Processed with <a href="https://github.com/alrobles/xclim">xclim</a> ·
+        <a href="https://github.com/alrobles/ecoseek-bioclim">Source</a>
     </div>
 </body>
 </html>""")
@@ -402,6 +413,7 @@ def year_browser(year: str):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EcoSeek Bioclim — {year}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {{
             --primary: #1B5E20; --primary-light: #E8F5E9; --primary-dark: #154215;
@@ -449,7 +461,10 @@ def year_browser(year: str):
 <body>
     <div class="header">
         <a href="/">← Back to all years</a>
-        <h1>🌍 EcoSeek Bioclim — Year {year}</h1>
+        <div style="display:flex;align-items:center;gap:0.8rem">
+            <img src="/static/ecoseek-logo.svg" alt="EcoSeek" style="width:36px;height:36px">
+            <h1>EcoSeek Bioclim — Year {year}</h1>
+        </div>
     </div>
     <div class="container">
         <table>

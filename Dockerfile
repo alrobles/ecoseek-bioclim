@@ -6,6 +6,7 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
+COPY frontend/public/ /app/../frontend/public/
 
 EXPOSE 8650
 
