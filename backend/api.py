@@ -166,15 +166,15 @@ def index():
     <title>EcoSeek Bioclim — ERA5-Land Bioclimatic Variables</title>
     <style>
         :root {{
-            --primary: #2563eb;
-            --primary-light: #dbeafe;
-            --primary-dark: #1d4ed8;
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --text: #0f172a;
-            --text-secondary: #64748b;
-            --border: #e2e8f0;
-            --success: #10b981;
+            --primary: #1B5E20;
+            --primary-light: #E8F5E9;
+            --primary-dark: #154215;
+            --bg: #FFFFFF;
+            --card: #FFFFFF;
+            --text: #212121;
+            --text-secondary: #757575;
+            --border: #E0E0E0;
+            --success: #1B5E20;
         }}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -404,9 +404,9 @@ def year_browser(year: str):
     <title>EcoSeek Bioclim — {year}</title>
     <style>
         :root {{
-            --primary: #2563eb; --primary-light: #dbeafe; --primary-dark: #1d4ed8;
-            --bg: #f8fafc; --card: #ffffff; --text: #0f172a;
-            --text-secondary: #64748b; --border: #e2e8f0;
+            --primary: #1B5E20; --primary-light: #E8F5E9; --primary-dark: #154215;
+            --bg: #FFFFFF; --card: #FFFFFF; --text: #212121;
+            --text-secondary: #757575; --border: #E0E0E0;
         }}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
